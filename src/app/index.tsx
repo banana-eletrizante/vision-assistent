@@ -1,98 +1,78 @@
-import * as Device from 'expo-device';
-import { Platform, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-
-import { AnimatedIcon } from '@/components/animated-icon';
-import { HintRow } from '@/components/hint-row';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
-
-function getDevMenuHint() {
-  if (Platform.OS === 'web') {
-    return <ThemedText type="small">use browser devtools</ThemedText>;
-  }
-  if (Device.isDevice) {
-    return (
-      <ThemedText type="small">
-        shake device or press <ThemedText type="code">m</ThemedText> in terminal
-      </ThemedText>
-    );
-  }
-  const shortcut = Platform.OS === 'android' ? 'cmd+m (or ctrl+m)' : 'cmd+d';
-  return (
-    <ThemedText type="small">
-      press <ThemedText type="code">{shortcut}</ThemedText>
-    </ThemedText>
-  );
-}
+import React, { useRef, useState } from 'react';
+import { View, StyleSheet } from 'react-native';
+import { CameraView, useCameraPermissions } from 'expo-camera';
+import { BigButton } from '../components/BigButton';
+import { PermissionScreen } from '../components/PermissionScreen';
+import { StatusOverlay } from '../components/StatusOverlay';
+import { useSceneDescription } from '../hooks/useSceneDescription';
+import { useSpeech } from '../hooks/useSpeech';
+import { Colors } from '../constants/colors';
 
 export default function HomeScreen() {
+  const [permission, requestPermission] = useCameraPermissions();
+  const cameraRef = useRef<CameraView>(null);
+  const { analyzeScene, loading } = useSceneDescription();
+  const { speakText } = useSpeech();
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+
+  if (!permission) {
+    return <View style={styles.container} />;
+  }
+
+  if (!permission.granted) {
+    return <PermissionScreen onRequestPermission={requestPermission} />;
+  }
+
+  const handleCaptureAndAnalyze = async () => {
+    if (!cameraRef.current || loading) return;
+
+    try {
+      setStatusMessage('Capturando imagem...');
+      speakText('Analisando ambiente, aguarde...');
+
+      const photo = await cameraRef.current.takePictureAsync({
+        quality: 0.5,
+        base64: false,
+      });
+
+      if (photo?.uri) {
+        const description = await analyzeScene(photo.uri);
+        setStatusMessage(description);
+        speakText(description);
+      }
+    } catch (error) {
+      const errorMsg = 'Não foi possível analisar a imagem. Tente novamente.';
+      setStatusMessage(errorMsg);
+      speakText(errorMsg);
+    }
+  };
+
   return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ThemedView style={styles.heroSection}>
-          <AnimatedIcon />
-          <ThemedText type="title" style={styles.title}>
-            Welcome to&nbsp;Expo
-          </ThemedText>
-        </ThemedView>
+    <View style={styles.container}>
+      <CameraView style={StyleSheet.absoluteFill} ref={cameraRef} />
 
-        <ThemedText type="code" style={styles.code}>
-          get started
-        </ThemedText>
+      <View style={styles.buttonContainer}>
+        <BigButton
+          title={loading ? 'Analisando...' : 'TOQUE PARA DESCREVER A CENA'}
+          onPress={handleCaptureAndAnalyze}
+          disabled={loading}
+        />
+      </View>
 
-        <ThemedView type="backgroundElement" style={styles.stepContainer}>
-          <HintRow
-            title="Try editing"
-            hint={<ThemedText type="code">src/app/index.tsx</ThemedText>}
-          />
-          <HintRow title="Dev tools" hint={getDevMenuHint()} />
-          <HintRow
-            title="Fresh start"
-            hint={<ThemedText type="code">npm run reset-project</ThemedText>}
-          />
-        </ThemedView>
-
-        {Platform.OS === 'web' && <WebBadge />}
-      </SafeAreaView>
-    </ThemedView>
+      {statusMessage && (
+        <StatusOverlay message={statusMessage} isLoading={loading} />
+      )}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: 'center',
-    flexDirection: 'row',
+    backgroundColor: Colors.background,
   },
-  safeArea: {
+  buttonContainer: {
     flex: 1,
-    paddingHorizontal: Spacing.four,
-    alignItems: 'center',
-    gap: Spacing.three,
-    paddingBottom: BottomTabInset + Spacing.three,
-    maxWidth: MaxContentWidth,
-  },
-  heroSection: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    gap: Spacing.four,
-  },
-  title: {
-    textAlign: 'center',
-  },
-  code: {
-    textTransform: 'uppercase',
-  },
-  stepContainer: {
-    gap: Spacing.three,
-    alignSelf: 'stretch',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.four,
-    borderRadius: Spacing.four,
+    zIndex: 10,
   },
 });
